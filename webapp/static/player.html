@@ -1,1 +1,159 @@
+<!doctype html>
+<html lang="si">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ගී</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;600&family=Noto+Serif+Sinhala:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#0d1b1e;--panel:#142a2e;--line:#21403f;--ink:#e9f2ef;--dim:#7fa5a1;--lamp:#f4b942;--coral:#ff6a55;--fs:1.25rem;
+  --ui:"Noto Sans Sinhala",system-ui,sans-serif;--lyr:"Noto Serif Sinhala","Noto Sans Sinhala",serif}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui)}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;gap:12px;align-items:center;padding:12px 16px 4px}
+#cover{width:52px;height:52px;border-radius:10px;background:var(--panel);object-fit:cover}
+h1{font-size:1.05rem;margin:0;font-weight:600;line-height:1.3}
+#artist{margin:2px 0 0;color:var(--dim);font-size:.85rem}
+nav{display:flex;gap:4px;padding:6px 12px;border-bottom:1px solid var(--line)}
+nav button{background:none;border:0;color:var(--dim);padding:8px 12px;font:inherit;border-radius:8px}
+nav button[aria-selected=true]{color:var(--ink);background:var(--panel)}
+main{flex:1;overflow:auto;position:relative;padding:8px 16px 24px;scroll-behavior:smooth}
+section[hidden]{display:none}
+.tools{display:flex;gap:8px;justify-content:flex-end;padding:6px 0}
+.tools button,.btn{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit}
+#lines{list-style:none;margin:0;padding:30vh 0;text-align:center;font-family:var(--lyr)}
+#lines li{padding:.45em 0;color:var(--dim);font-size:var(--fs);line-height:1.5;cursor:pointer;transition:color .25s,transform .25s}
+#lines li.on{color:var(--lamp);font-weight:600;transform:scale(1.08);text-shadow:0 0 22px rgba(244,185,66,.35)}
+#lines li.sung{color:#a9c3bf}
+.empty{color:var(--dim);text-align:center;padding:40px 12px}
+footer{padding:10px 16px 14px;border-top:1px solid var(--line);background:var(--panel)}
+#bar{display:flex;align-items:center;gap:10px}
+#play{width:48px;height:48px;border-radius:50%;border:0;background:var(--coral);color:#fff;font-size:1.2rem}
+input[type=range]{flex:1;accent-color:var(--lamp)}
+.time{font-variant-numeric:tabular-nums;color:var(--dim);font-size:.8rem;min-width:2.6em;text-align:center}
+#party{display:none;margin-top:8px;text-align:center}
+#ytbox iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#000}
+#markbtn{display:block;width:100%;padding:22px;font-size:1.1rem;background:var(--coral);color:#fff;border:0;border-radius:14px;margin:14px 0}
+#cur{font-family:var(--lyr);font-size:1.3rem;text-align:center;color:var(--lamp);margin:18px 0 4px}
+#nxt{text-align:center;color:var(--dim);font-family:var(--lyr)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){main{scroll-behavior:auto}#lines li{transition:none}}
+</style>
+</head>
+<body>
+<header><img id="cover" alt=""><div><h1 id="title">…</h1><p id="artist"></p></div></header>
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="lyrics">Lyrics</button>
+  <button role="tab" aria-selected="false" data-tab="video">Video</button>
+  <button role="tab" aria-selected="false" data-tab="sync">Sync</button>
+</nav>
+<main id="main">
+  <section id="tab-lyrics">
+    <div class="tools"><button id="rom" class="btn">Singlish</button><button id="fm" class="btn" aria-label="smaller">A−</button><button id="fp" class="btn" aria-label="larger">A+</button></div>
+    <ol id="lines"></ol><p id="nolyrics" class="empty" hidden></p>
+  </section>
+  <section id="tab-video" hidden><div id="ytbox"></div><p id="novideo" class="empty" hidden>No official video linked for this song.</p></section>
+  <section id="tab-sync" hidden>
+    <p class="empty" id="syncinfo">Play the song and tap the button the moment each line starts. Your timings help everyone.</p>
+    <div id="cur"></div><div id="nxt"></div>
+    <button id="markbtn">Start</button>
+    <div style="display:flex;gap:8px;justify-content:center"><button class="btn" id="undo">Undo</button><button class="btn" id="send" disabled>Submit</button></div>
+    <p class="time" id="syncstat"></p>
+  </section>
+</main>
+<footer>
+  <div id="bar"><button id="play" aria-label="play">▶</button><span class="time" id="tc">0:00</span>
+    <input id="seek" type="range" min="0" max="1000" value="0" aria-label="position"><span class="time" id="td">0:00</span></div>
+  <div id="party"><button class="btn" id="join">🎧 Join the party</button></div>
+</footer>
+<audio id="au" preload="metadata" playsinline></audio>
+<script>
+const tg=window.Telegram&&window.Telegram.WebApp; if(tg){tg.ready();tg.expand();}
+const $=s=>document.querySelector(s), au=$("#au");
+const sp=(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param)||"", ci=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.chat_instance;
+let tid=new URLSearchParams(location.search).get("t")||(/^[tp]_/.test(sp)?sp.slice(2):"");
+const party=/^p_/.test(sp)&&!!ci; let T=null,lines=[],roman=false,idx=-1,fs=1.25,yt=null,useYT=false,joined=false,applying=false;
+const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+const fmt=s=>{s=Math.max(0,s|0);return (s/60|0)+":"+String(s%60).padStart(2,"0")};
+const post=(u,b)=>fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({initData:tg?tg.initData:"",...b})});
 
+async function load(){
+  const r=await fetch("/api/track/"+encodeURIComponent(tid)); if(!r.ok){$("#title").textContent="Not found";return}
+  T=await r.json(); document.title=T.title; $("#title").textContent=T.title; $("#artist").textContent=T.artist;
+  if(T.image)$("#cover").src=T.image; lines=T.lines; idx=-1; au.src=T.audio||""; useYT=!T.audio&&!!T.video_id;
+  $("#bar").style.display=(T.audio||useYT)?"flex":"none"; drawLines(); loadVideo();
+}
+function drawLines(){
+  const ol=$("#lines"); ol.replaceChildren();
+  $("#nolyrics").hidden=lines.length>0; $("#nolyrics").textContent="No lyrics yet — add timings in the Sync tab.";
+  lines.forEach((l,i)=>{const li=document.createElement("li"); li.textContent=roman?l.r:l.s; li.dataset.i=i;
+    li.onclick=()=>{if(l.t!=null)seekTo(l.t)}; ol.appendChild(li)});
+}
+const now=()=>useYT&&yt&&yt.getCurrentTime?yt.getCurrentTime():au.currentTime;
+function seekTo(t){ if(useYT&&yt)yt.seekTo(t,true); else au.currentTime=t; if(party&&joined&&!applying)post("/api/party",{action:"seek",pos:t}) }
+function tick(){
+  const t=now(); if(T&&T.synced){let k=-1; for(let i=0;i<lines.length;i++){if(lines[i].t<=t)k=i; else break}
+    if(k!==idx){idx=k; document.querySelectorAll("#lines li").forEach((li,i)=>{li.classList.toggle("on",i===k);li.classList.toggle("sung",i<k)});
+      const el=document.querySelector("#lines li.on"); if(el)el.scrollIntoView({block:"center",behavior:reduce?"auto":"smooth"})}}
+  const d=useYT&&yt&&yt.getDuration?yt.getDuration():au.duration||T&&T.duration||0;
+  $("#tc").textContent=fmt(t); $("#td").textContent=fmt(d); if(d&&!seeking)$("#seek").value=Math.round(t/d*1000);
+  requestAnimationFrame(tick);
+}
+let seeking=false; const sk=$("#seek");
+sk.oninput=()=>{seeking=true}; sk.onchange=()=>{const d=useYT&&yt?yt.getDuration():au.duration||0; if(d)seekTo(sk.value/1000*d); seeking=false};
+$("#play").onclick=()=>{ if(useYT&&yt){yt.getPlayerState()===1?yt.pauseVideo():yt.playVideo();return}
+  au.paused?au.play().catch(()=>{}):au.pause() };
+au.onplay=()=>{$("#play").textContent="❚❚"; if(party&&joined&&!applying)post("/api/party",{action:"play",pos:au.currentTime})};
+au.onpause=()=>{$("#play").textContent="▶"; if(party&&joined&&!applying)post("/api/party",{action:"pause",pos:au.currentTime})};
+
+// tabs, script toggle, font size
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected",x===b));
+  ["lyrics","video","sync"].forEach(n=>$("#tab-"+n).hidden=n!==b.dataset.tab); if(b.dataset.tab==="sync")initSync()});
+$("#rom").onclick=()=>{roman=!roman;$("#rom").textContent=roman?"සිංහල":"Singlish";drawLines();idx=-2};
+$("#fm").onclick=()=>{fs=Math.max(.9,fs-.1);document.documentElement.style.setProperty("--fs",fs+"rem")};
+$("#fp").onclick=()=>{fs=Math.min(2,fs+.1);document.documentElement.style.setProperty("--fs",fs+"rem")};
+
+// YouTube (official embed; play only)
+function loadVideo(){
+  const box=$("#ytbox"); box.replaceChildren(); $("#novideo").hidden=!!T.video_id; if(!T.video_id)return;
+  const d=document.createElement("div"); d.id="ytp"; box.appendChild(d);
+  const make=()=>{yt=new YT.Player("ytp",{videoId:T.video_id,playerVars:{playsinline:1,rel:0},events:{onStateChange:e=>{if(useYT)$("#play").textContent=e.data===1?"❚❚":"▶"}}})};
+  if(window.YT&&YT.Player)make(); else{window.onYouTubeIframeAPIReady=make;const s=document.createElement("script");s.src="https://www.youtube.com/iframe_api";document.head.appendChild(s)}
+}
+
+// listening party: everyone follows the server clock for this chat
+async function pollParty(){
+  if(!joined)return; const p=await (await fetch("/api/party/"+ci)).json(); if(!p.track_id)return;
+  applying=true;
+  if(p.track_id!==tid){tid=p.track_id;await load()}
+  if(Math.abs(au.currentTime-p.pos)>1.5)au.currentTime=p.pos;
+  if(p.paused&&!au.paused)au.pause(); if(!p.paused&&au.paused)await au.play().catch(()=>{});
+  setTimeout(()=>applying=false,300);
+}
+if(party){$("#party").style.display="block"; $("#join").onclick=async()=>{joined=true;$("#party").style.display="none";await pollParty();setInterval(pollParty,2500)}}
+
+// community lyric timing
+let plain=[],marks=[];
+function initSync(){
+  const ok=T&&T.audio; $("#markbtn").disabled=!ok; if(!ok){$("#syncinfo").textContent="Timing needs a song with audio in the player.";return}
+  if(!plain.length||plain._id!==T.id){plain=T.lines.map(l=>l.s); plain._id=T.id; marks=[]} drawSync();
+}
+function drawSync(){
+  $("#cur").textContent=marks.length<plain.length?plain[marks.length]:"✔"; $("#nxt").textContent=plain[marks.length+1]||"";
+  $("#markbtn").textContent=marks.length?"Tap — this line starts now":"Start the song & tap on line 1";
+  $("#syncstat").textContent=marks.length+" / "+plain.length; $("#send").disabled=marks.length!==plain.length;
+}
+$("#markbtn").onclick=()=>{ if(!marks.length&&au.paused)au.play().catch(()=>{}); if(marks.length<plain.length){marks.push(Math.round(now()*100)/100);drawSync()} };
+$("#undo").onclick=()=>{marks.pop();drawSync()};
+$("#send").onclick=async()=>{
+  const r=await post("/api/sync",{track_id:T.id,lines:plain.map((s,i)=>[marks[i],s])});
+  $("#syncstat").textContent=r.ok?"Thanks! A moderator will review it.":"Could not submit ("+r.status+")"; if(r.ok)$("#send").disabled=true;
+};
+load().then(()=>requestAnimationFrame(tick));
+</script>
+</body>
+</html>
