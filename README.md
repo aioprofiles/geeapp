@@ -9,11 +9,28 @@ pip install -r requirements.txt
 cp .env.example .env && export $(grep -v '^#' .env | xargs)   # fill BOT_TOKEN, BOT_USERNAME, OWNER_IDS, ...
 python -m geebot.main                                           # bot (long polling + scheduler)
 uvicorn webapp.server:app --port 8080                           # Mini App backend, serve over HTTPS
-python -m unittest discover -s tests -t .                       # 51 tests
+python -m unittest discover -s tests -t .                       # 56 tests
 ```
 BotFather setup: enable **Guest Mode**; create a Mini App with short name = `APP_SHORT` pointing to `WEBAPP_URL/app`;
 turn **privacy mode off** (or make the bot admin) so plain-text game guesses are seen in groups (`/g title` works regardless).
 Stars payments need no provider token (`currency=XTR`).
+
+## Deploy on Render (free)
+Facts from Render's docs (check them again, they change): free web services spin down after 15 min without inbound traffic,
+have an **ephemeral filesystem**, may restart at any time, get 750 instance-hours/month per workspace, and have no persistent disk.
+Free Postgres expires after 30 days and has no backups. So this repo runs as **one** free web service (`geebot/serve.py` = Mini App API +
+bot long-polling + scheduler) and keeps its SQLite database in Telegram (`geebot/backup.py`).
+1. Push this folder to a (private) GitHub repo. Message your bot once with /start (so it may DM you).
+2. Render -> New -> Blueprint -> pick the repo (uses `render.yaml`, Docker, plan: free). Fill the env vars:
+   `BOT_TOKEN, BOT_USERNAME, OWNER_IDS, BACKUP_CHAT_ID (= your user id), JAMENDO_CLIENT_ID`, optional `ANTHROPIC_API_KEY`.
+3. After the first deploy copy the service URL into `WEBAPP_URL` (https://<name>.onrender.com) and redeploy.
+4. BotFather: Mini App short name = `APP_SHORT`, URL = `WEBAPP_URL/app`; enable Guest Mode; privacy mode off.
+5. Keep it awake: a free uptime monitor (UptimeRobot / cron-job.org) hitting `WEBAPP_URL/healthz` every 5 min.
+   Without it the bot sleeps and scheduled dedications / game timers do not fire.
+6. Check: `/stats` as owner works; a pinned `geebot-backup.sqlite.gz` appears in your chat with the bot within ~5 min.
+Limits: last <=5 min of data can be lost on a hard crash; backup must stay < 20 MB compressed (restore uses getFile);
+a redeploy briefly runs two pollers (harmless `Conflict` log lines); cold start up to ~1 min; 512 MB RAM.
+Verify the Sinhala font path with `fc-list :lang=si` inside the container (needed only for reels).
 
 ## Content policy (read before launching)
 * Catalogue = **Creative-Commons music (Jamendo)** + tracks uploaded by approved artists. No YouTube/Spotify ripping.

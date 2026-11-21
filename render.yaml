@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: geebot
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - {key: BOT_TOKEN, sync: false}
+      - {key: BOT_USERNAME, sync: false}
+      - {key: OWNER_IDS, sync: false}
+      - {key: BACKUP_CHAT_ID, sync: false}      # your own Telegram user id (start the bot first)
+      - {key: WEBAPP_URL, sync: false}          # https://<your-service>.onrender.com
+      - {key: JAMENDO_CLIENT_ID, sync: false}
+      - {key: ANTHROPIC_API_KEY, sync: false}
+      - {key: APP_SHORT, value: player}
+      - {key: DB_PATH, value: /tmp/geebot.sqlite}
+      - {key: MEDIA_DIR, value: /tmp/media}
+      - {key: FONT_FILE, value: /usr/share/fonts/truetype/noto/NotoSansSinhala-Regular.ttf}
