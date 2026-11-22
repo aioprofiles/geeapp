@@ -9,10 +9,30 @@ from .user import send_dedication
 from .util import local_now, today
 
 log = logging.getLogger("sched")
+_last_prune = 0.0
+
+
+def prune_results(db, max_age: int = 3 * 86400) -> int:
+    """Search-result pages are stored in kv (key 'res:<chat>:<msg>'); drop the old ones. Portable SQL (no LIKE '%')."""
+    import time
+    n = 0
+    for r in db.q("SELECT k, v FROM kv WHERE substr(k,1,4)='res:'"):
+        try:
+            ts = json.loads(r["v"]).get("ts", 0)
+        except ValueError:
+            ts = 0
+        if ts < time.time() - max_age:
+            db.kv_del(r["k"]); n += 1
+    return n
 
 
 async def tick(ctx: Ctx):
+    global _last_prune
     db = ctx.db
+    import time
+    if time.time() - _last_prune > 3600:
+        _last_prune = time.time()
+        prune_results(db)
     for d in features.due_dedications(db):
         rid = features.recipient_id(db, d["to_username"])
         if rid:

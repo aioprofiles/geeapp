@@ -2,10 +2,11 @@
 import asyncio
 import logging
 
-from . import admin, group, guest, sched, user, wq
+from . import admin, commands, donate, group, guest, nav, sched, user, wq
 from .app import Ctx
 from .config import Config
 from .db import DB
+from .store import open_db
 from .llm import LLM
 from .sources import Jamendo, Lrclib
 from .tg import Tg
@@ -27,7 +28,10 @@ COMMANDS = {
     "stats": admin.cmd_stats, "takedown": admin.cmd_takedown, "ban": admin.cmd_ban, "unban": admin.cmd_unban,
     "artist": admin.cmd_artist, "ytlink": admin.cmd_ytlink, "setlrc": admin.cmd_setlrc,
     "contribs": admin.cmd_contribs, "channel": admin.cmd_channel,
+    "menu": nav.cmd_menu, "about": nav.cmd_about, "privacy": nav.cmd_privacy, "donate": donate.cmd_donate,
+    "refund": donate.cmd_refund,
 }
+nav.COMMANDS = COMMANDS
 GATED = {"party", "request", "duel", "chain", "missing", "odd", "order", "scramble", "wordhunt", "bingo",
          "roulette", "singoff", "hum", "team", "pick"}
 
@@ -37,18 +41,8 @@ CALLBACKS = {
     "pn": user.cb_playlist_new, "lg": user.cb_lang, "hs": lambda c, cb, a: user.cb_heardle(c, cb, "hs"),
     "hu": lambda c, cb, a: user.cb_heardle(c, cb, "hu"), "dd": user.cb_dedicate, "dw": user.cb_dedicate_when,
     "di": user.cb_diary, "pt": group.cb_party_start, "cv": group.cb_contest_vote, "tj": group.cb_team_join,
-    "gs": group.cb_settings, "ap": admin.cb_approve,
+    "gs": group.cb_settings, "ap": admin.cb_approve, "n": nav.handle, "dn": donate.cb,
 }
-
-
-async def on_payment(ctx: Ctx, msg: dict):
-    uid, pay = msg["from"]["id"], msg["successful_payment"]
-    if pay.get("invoice_payload") == "prem30":
-        ctx.db.add_premium(uid, 30)
-        u = ctx.db.user(uid)
-        import time
-        until = time.strftime("%Y-%m-%d", time.gmtime(u["premium_until"]))
-        await ctx.tg.send(msg["chat"]["id"], ctx.tr(uid, "premium_on", d=until))
 
 
 async def on_message(ctx: Ctx, msg: dict):
@@ -59,7 +53,7 @@ async def on_message(ctx: Ctx, msg: dict):
     if row and row["banned"]:
         return
     if msg.get("successful_payment"):
-        return await on_payment(ctx, msg)
+        return await donate.on_paid(ctx, msg)
     if msg.get("new_chat_members"):
         return await group.welcome(ctx, msg)
     private = msg["chat"]["type"] == "private"
@@ -107,7 +101,7 @@ async def on_update(ctx: Ctx, u: dict):
         elif "widget_query" in u:
             await wq.handle(ctx, u["widget_query"])
         elif "pre_checkout_query" in u:
-            await ctx.tg.try_call("answerPreCheckoutQuery", pre_checkout_query_id=u["pre_checkout_query"]["id"], ok=True)
+            await donate.pre_checkout(ctx, u["pre_checkout_query"])
         elif "poll_answer" in u:
             await group.poll_answer(ctx, u["poll_answer"])
     except Exception:
@@ -119,7 +113,7 @@ ALLOWED = ["message", "callback_query", "guest_message", "widget_query", "shared
 
 
 def build_ctx(cfg: Config, db: DB | None = None) -> Ctx:
-    return Ctx(cfg, db or DB(cfg.db_path), Tg(cfg.bot_token, cfg.test_env), LLM(cfg.anthropic_model),
+    return Ctx(cfg, db or open_db(cfg), Tg(cfg.bot_token, cfg.test_env), LLM(cfg.anthropic_model),
                Jamendo(cfg.jamendo_client_id), Lrclib())
 
 
@@ -146,6 +140,7 @@ async def main():
     from . import backup
     backup.restore_sync(cfg)
     ctx = build_ctx(cfg)
+    asyncio.create_task(commands.install(ctx.tg))
     asyncio.create_task(sched.loop(ctx))
     asyncio.create_task(backup.loop(ctx))
     log.info("bot started (test_env=%s)", cfg.test_env)

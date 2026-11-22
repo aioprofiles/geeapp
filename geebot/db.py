@@ -7,7 +7,7 @@ from dataclasses import dataclass, asdict, fields
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, lang TEXT DEFAULT 'si',
   premium_until INTEGER DEFAULT 0, streak INTEGER DEFAULT 0, best_streak INTEGER DEFAULT 0,
-  last_heardle_day TEXT DEFAULT '', banned INTEGER DEFAULT 0, role TEXT DEFAULT '', created INTEGER);
+  last_heardle_day TEXT DEFAULT '', banned INTEGER DEFAULT 0, role TEXT DEFAULT '', created INTEGER, privacy INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_users_name ON users(username);
 CREATE TABLE IF NOT EXISTS tracks(id TEXT PRIMARY KEY, title TEXT, artist TEXT, album TEXT DEFAULT '',
   duration INTEGER DEFAULT 0, audio_url TEXT DEFAULT '', image TEXT DEFAULT '', license TEXT DEFAULT '',
@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS ix_hist ON history(user_id, ts);
 CREATE TABLE IF NOT EXISTS downloads(user_id INTEGER, day TEXT, track_id TEXT);
 CREATE TABLE IF NOT EXISTS dedications(id INTEGER PRIMARY KEY AUTOINCREMENT, from_id INTEGER, to_username TEXT,
   track_id TEXT, note TEXT, anonymous INTEGER DEFAULT 0, send_at INTEGER, sent INTEGER DEFAULT 0);
-CREATE TABLE IF NOT EXISTS diary(user_id INTEGER, track_id TEXT, note TEXT, ts INTEGER, remind_at INTEGER, reminded INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS diary(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, track_id TEXT, note TEXT, ts INTEGER, remind_at INTEGER, reminded INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS contribs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, track_id TEXT, lrc TEXT,
   status TEXT DEFAULT 'pending', ts INTEGER);
 CREATE TABLE IF NOT EXISTS badges(user_id INTEGER, badge TEXT, ts INTEGER, PRIMARY KEY(user_id, badge));
@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, track_i
 CREATE TABLE IF NOT EXISTS tips(track_id TEXT, from_id INTEGER, stars INTEGER, ts INTEGER);
 CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, run_at INTEGER, kind TEXT, payload TEXT, done INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS party(chat_instance TEXT PRIMARY KEY, track_id TEXT, started_at REAL, paused_at REAL, updated INTEGER);
+CREATE TABLE IF NOT EXISTS payments(charge_id TEXT PRIMARY KEY, user_id INTEGER, kind TEXT, stars INTEGER, payload TEXT, ts INTEGER, refunded INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS ix_pay_user ON payments(user_id);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -78,6 +80,13 @@ class DB:
         self.c.execute("PRAGMA journal_mode=WAL")
         self.c.executescript(SCHEMA)
         self.lock = threading.Lock()
+        self._migrate()
+
+    def _migrate(self):
+        """Additive migrations for databases created by older versions."""
+        cols = {r['name'] for r in self.q("PRAGMA table_info(users)")}
+        if 'privacy' not in cols:
+            self.x('ALTER TABLE users ADD COLUMN privacy INTEGER DEFAULT 0')
 
     def q(self, sql, *a) -> list[dict]:
         with self.lock:
@@ -180,12 +189,15 @@ class DB:
 
     # ---- scores ------------------------------------------------------------
     def add_score(self, chat_id, uid, name, game, pts):
+        u = self.user(uid)
+        if u and u.get("privacy"):               # Privacy Mode: never show this person's name on boards
+            name = "Anonymous"
         self.x("INSERT INTO scores VALUES(?,?,?,?,?,?)", chat_id, uid, name, game, pts, int(time.time()))
 
     def leaderboard(self, chat_id=None, since=0, limit=10):
         if chat_id is None:
-            return self.q("SELECT user_id, name, SUM(points) p FROM scores WHERE ts>=? GROUP BY user_id ORDER BY p DESC LIMIT ?", since, limit)
-        return self.q("SELECT user_id, name, SUM(points) p FROM scores WHERE chat_id=? AND ts>=? GROUP BY user_id ORDER BY p DESC LIMIT ?",
+            return self.q("SELECT user_id, MAX(name) name, SUM(points) p FROM scores WHERE ts>=? GROUP BY user_id ORDER BY p DESC LIMIT ?", since, limit)
+        return self.q("SELECT user_id, MAX(name) name, SUM(points) p FROM scores WHERE chat_id=? AND ts>=? GROUP BY user_id ORDER BY p DESC LIMIT ?",
                       chat_id, since, limit)
 
     # ---- jobs --------------------------------------------------------------

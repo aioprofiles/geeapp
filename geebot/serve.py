@@ -17,14 +17,14 @@ cfg = Config.from_env()
 backup.restore_sync(cfg)                       # must happen before the DB file is opened
 
 from fastapi import FastAPI  # noqa: E402
-from geebot import main as bot_main, sched  # noqa: E402
+from geebot import commands, main as bot_main, sched  # noqa: E402
 from webapp import server  # noqa: E402       (opens the SQLite file)
 
 
 @asynccontextmanager
 async def lifespan(app):
     ctx = bot_main.build_ctx(cfg, db=server.db)
-    tasks = [asyncio.create_task(bot_main.poll(ctx)), asyncio.create_task(sched.loop(ctx)),
+    tasks = [asyncio.create_task(commands.install(ctx.tg)), asyncio.create_task(bot_main.poll(ctx)), asyncio.create_task(sched.loop(ctx)),
              asyncio.create_task(backup.loop(ctx))]
     try:
         yield

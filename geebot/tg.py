@@ -5,6 +5,7 @@ import logging
 
 import httpx
 
+from . import rich as _rich
 from .ui import btn, kb  # noqa: F401  (re-exported)
 
 log = logging.getLogger("tg")
@@ -63,6 +64,41 @@ class Tg:
         except (TgError, httpx.HTTPError) as e:
             log.info("rich fallback: %s", e)
             return await self.send(chat_id, html, rows, **kw)
+
+    async def rich(self, chat_id, html: str, rows=None, **kw):
+        """Native rich message (HTML flavour: tables, <details>, headings). Falls back to a readable plain message."""
+        try:
+            return await self.call("sendRichMessage", chat_id=chat_id, rich_message={"html": html},
+                                   reply_markup=kb(rows) if rows else None, **kw)
+        except (TgError, httpx.HTTPError) as e:
+            log.info("rich fallback: %s", e)
+            return await self.call("sendMessage", chat_id=chat_id, text=_rich.to_plain(html)[:4000],
+                                   reply_markup=kb(rows) if rows else None, **kw)
+
+    async def edit_rich(self, chat_id, message_id, html: str, rows=None):
+        """editMessageText with rich_message (not in the official method docs yet -> verified fallback to plain text)."""
+        r = await self.try_call("editMessageText", chat_id=chat_id, message_id=message_id,
+                                rich_message={"html": html}, reply_markup=kb(rows) if rows else None)
+        if r is None:
+            r = await self.try_call("editMessageText", chat_id=chat_id, message_id=message_id,
+                                    text=_rich.to_plain(html)[:4000], reply_markup=kb(rows) if rows else None)
+        return r
+
+    async def set_commands(self, commands: list[tuple[str, str]], language_code: str | None = None):
+        return await self.try_call("setMyCommands", commands=[{"command": c, "description": d[:256]} for c, d in commands],
+                                   language_code=language_code)
+
+    async def invoice_stars(self, chat_id, title: str, description: str, payload: str, stars: int, **kw):
+        """Telegram Stars invoice: currency XTR, no provider token, exactly one price item, whole Stars."""
+        return await self.call("sendInvoice", chat_id=chat_id, title=title[:32], description=description[:255],
+                               payload=payload[:128], currency="XTR", prices=[{"label": title[:32], "amount": int(stars)}], **kw)
+
+    async def precheckout(self, query_id: str, ok: bool, error: str | None = None):
+        return await self.try_call("answerPreCheckoutQuery", pre_checkout_query_id=query_id, ok=ok,
+                                   error_message=None if ok else (error or "Payment refused")[:200])
+
+    async def refund_stars(self, user_id: int, charge_id: str):
+        return await self.try_call("refundStarPayment", user_id=user_id, telegram_payment_charge_id=charge_id)
 
     async def edit(self, chat_id, message_id, text, rows=None):
         return await self.try_call("editMessageText", chat_id=chat_id, message_id=message_id, text=text,

@@ -5,7 +5,7 @@ import os
 import random
 import time
 
-from . import cards, features, games, lrc, media, search, textutil as tu, widgets
+from . import cards, donate, features, games, lrc, media, nav, screens, search, textutil as tu, widgets
 from .app import Ctx, arg_text, display_name
 from .db import Track
 from .tg import btn
@@ -27,14 +27,14 @@ async def audio_path(ctx: Ctx, t: Track) -> str | None:
 
 
 async def show_card(ctx: Ctx, chat_id: int, uid: int, t: Track, in_private: bool = True):
-    md, html = cards.card_text(t)
-    await ctx.tg.send_rich(chat_id, md, html, cards.card_kb(ctx.cfg, t, ctx.db.is_fav(uid, t.id), in_private))
+    html, rows = screens.song_card(ctx, uid, t, in_private)
+    await ctx.tg.rich(chat_id, html, rows)
 
 
-async def show_results(ctx: Ctx, chat_id: int, uid: int, tracks: list[Track]):
+async def show_results(ctx: Ctx, chat_id: int, uid: int, tracks: list[Track], title: str | None = None):
     if not tracks:
         return await ctx.tg.send(chat_id, ctx.tr(uid, "nothing"))
-    await ctx.tg.send(chat_id, ctx.tr(uid, "pick"), cards.results_kb(tracks))
+    await nav.send_results(ctx, chat_id, tracks, title or ctx.tr(uid, "pick"))
 
 
 # ---------- commands ---------------------------------------------------------
@@ -46,7 +46,8 @@ async def cmd_start(ctx: Ctx, msg: dict, args: str):
             return await show_card(ctx, chat, uid, t)
     if args.startswith("ded_"):
         return await deliver_dedication(ctx, int(args[4:] or 0), uid)
-    await ctx.tg.send(chat, ctx.tr(uid, "welcome"))
+    html, rows = screens.home(ctx, uid)
+    await ctx.tg.rich(chat, html, rows)
 
 
 async def cmd_help(ctx: Ctx, msg: dict, args: str):
@@ -90,7 +91,7 @@ async def cmd_fav(ctx: Ctx, msg: dict, args: str):
 
 async def cmd_history(ctx: Ctx, msg: dict, args: str):
     uid, chat = msg["from"]["id"], msg["chat"]["id"]
-    rows = ctx.db.q("SELECT DISTINCT track_id FROM history WHERE user_id=? ORDER BY ts DESC LIMIT 20", uid)
+    rows = ctx.db.q("SELECT track_id FROM history WHERE user_id=? GROUP BY track_id ORDER BY MAX(ts) DESC LIMIT 20", uid)
     await show_results(ctx, chat, uid, [t for t in (ctx.db.track(r["track_id"]) for r in rows) if t])
 
 
@@ -147,8 +148,10 @@ async def cmd_beat(ctx: Ctx, msg: dict, args: str):
 
 async def cmd_premium(ctx: Ctx, msg: dict, args: str):
     uid, chat = msg["from"]["id"], msg["chat"]["id"]
-    await ctx.tg.try_call("sendInvoice", chat_id=chat, title="Premium · 30 days", description="Unlimited downloads, no limits",
-                          payload="prem30", currency="XTR", prices=[{"label": "Premium 30d", "amount": ctx.cfg.premium_stars_30d}])
+    try:
+        await ctx.tg.invoice_stars(chat, "Premium · 30 days", "Unlimited downloads, no limits", "prem30", ctx.cfg.premium_stars_30d)
+    except Exception:
+        await ctx.tg.send(chat, ctx.tr(uid, "nothing"))
 
 
 async def cmd_report(ctx: Ctx, msg: dict, args: str):
@@ -369,7 +372,7 @@ async def heardle_guess(ctx: Ctx, msg: dict, text: str | None, skip: bool = Fals
     yday = today(ctx.cfg.tz_offset_min - 1440)
     if won:
         s = games.next_streak(u["last_heardle_day"], day, u["streak"], yday)
-        ctx.db.x("UPDATE users SET streak=?, best_streak=MAX(best_streak,?), last_heardle_day=? WHERE id=?", s, s, day, uid)
+        ctx.db.x("UPDATE users SET streak=?, best_streak=CASE WHEN best_streak>? THEN best_streak ELSE ? END, last_heardle_day=? WHERE id=?", s, s, s, day, uid)
         ctx.db.add_score(0, uid, display_name(msg["from"]), "heardle", 7 - len(att))
         txt = ctx.tr(uid, "heardle_win", t=esc(t.title), s=s)
     else:
@@ -473,6 +476,8 @@ async def handle_flow(ctx: Ctx, msg: dict) -> bool:
     k = fl["k"]
     if k == "heardle":
         return await heardle_guess(ctx, msg, text)
+    if k == "don_amount":
+        return await donate.amount_flow(ctx, msg, text)
     if k == "plname":
         pid = ctx.db.x("INSERT INTO playlists(user_id,name) VALUES(?,?)", uid, text[:40])
         if fl.get("tid"):

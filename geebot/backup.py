@@ -16,6 +16,18 @@ MAX_UPLOAD = 45 * 1024 * 1024
 _state: dict = {"msg": None, "sig": None}
 
 
+EXPORT_TABLES = ("users", "payments", "badges", "favs", "playlists", "pl_items", "dedications", "diary", "contribs",
+                 "scores", "tracks", "heardle", "gsettings", "channels", "tips")
+PG_NAME = "geebot-pg-export.json.gz"
+
+
+def export_tables(db) -> bytes:
+    """Postgres mode: portable JSON dump of the important tables (history is skipped: big and low value)."""
+    import json
+    out = {t: db.q(f"SELECT * FROM {t}") for t in EXPORT_TABLES}
+    return gzip.compress(json.dumps(out, default=str, ensure_ascii=False).encode(), 6)
+
+
 def snapshot(db_path: str) -> bytes:
     """Consistent copy using SQLite's online backup API (safe while the bot is writing)."""
     fd, tmp = tempfile.mkstemp(suffix=".sqlite")
@@ -41,7 +53,7 @@ def _sig(db_path: str) -> tuple:
 
 def restore_sync(cfg, http=None) -> bool:
     """Call BEFORE the DB is opened. Returns True if a backup was restored."""
-    if (os.path.exists(cfg.db_path) and os.path.getsize(cfg.db_path) > 0) or not (cfg.backup_chat_id and cfg.bot_token):
+    if cfg.database_url or (os.path.exists(cfg.db_path) and os.path.getsize(cfg.db_path) > 0) or not (cfg.backup_chat_id and cfg.bot_token):
         return False
     if http is None:
         import httpx
@@ -70,19 +82,20 @@ def restore_sync(cfg, http=None) -> bool:
 
 async def backup_once(ctx, force: bool = False) -> bool:
     cfg = ctx.cfg
-    if not cfg.backup_chat_id or not os.path.exists(cfg.db_path):
+    pg = bool(cfg.database_url)
+    if not cfg.backup_chat_id or (not pg and not os.path.exists(cfg.db_path)):
         return False
-    sig = _sig(cfg.db_path)                 # taken BEFORE the snapshot: later writes still count as changes
-    if not force and sig == _state["sig"]:
+    sig = None if pg else _sig(cfg.db_path)  # taken BEFORE the snapshot: later writes still count as changes
+    if not force and not pg and sig == _state["sig"]:
         return False
-    data = await asyncio.to_thread(snapshot, cfg.db_path)
+    data = await asyncio.to_thread(export_tables, ctx.db) if pg else await asyncio.to_thread(snapshot, cfg.db_path)
     if len(data) > MAX_UPLOAD:
         log.error("backup too large (%d bytes) - move to a real database", len(data))
         return False
     if _state["msg"] is None:  # first run after a restart: remember the previous pinned backup so we can delete it
         info = await ctx.tg.try_call("getChat", chat_id=cfg.backup_chat_id)
         _state["msg"] = ((info or {}).get("pinned_message") or {}).get("message_id")
-    m = await ctx.tg.upload("sendDocument", "document", NAME, data, "application/gzip", chat_id=cfg.backup_chat_id,
+    m = await ctx.tg.upload("sendDocument", "document", PG_NAME if pg else NAME, data, "application/gzip", chat_id=cfg.backup_chat_id,
                             caption=time.strftime("backup %Y-%m-%d %H:%M UTC", time.gmtime()), disable_notification=True)
     await ctx.tg.try_call("pinChatMessage", chat_id=cfg.backup_chat_id, message_id=m["message_id"], disable_notification=True)
     if _state["msg"]:
@@ -93,7 +106,7 @@ async def backup_once(ctx, force: bool = False) -> bool:
 
 async def loop(ctx):
     while True:
-        await asyncio.sleep(max(60, ctx.cfg.backup_every_min * 60))
+        await asyncio.sleep(max(60, ctx.cfg.backup_every_min * 60) * (12 if ctx.cfg.database_url else 1))
         try:
             await backup_once(ctx)
         except Exception:

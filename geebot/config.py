@@ -24,6 +24,8 @@ class Config:
     free_dl_per_day: int = 3
     premium_stars_30d: int = 150
     backup_chat_id: int = 0
+    database_url: str = ""
+    donate_max_stars: int = 100000
     backup_every_min: int = 5
 
     @classmethod
@@ -46,5 +48,7 @@ class Config:
             free_dl_per_day=int(e("FREE_DL_PER_DAY", "3")),
             premium_stars_30d=int(e("PREMIUM_STARS_30D", "150")),
             backup_chat_id=int(e("BACKUP_CHAT_ID", "0") or 0),
+            database_url=e("DATABASE_URL", ""),
+            donate_max_stars=int(e("DONATE_MAX_STARS", "100000")),
             backup_every_min=int(e("BACKUP_EVERY_MIN", "5")),
         )
