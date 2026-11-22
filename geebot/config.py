@@ -23,6 +23,8 @@ class Config:
     tz_offset_min: int = 330
     free_dl_per_day: int = 3
     premium_stars_30d: int = 150
+    backup_chat_id: int = 0
+    backup_every_min: int = 5
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -43,4 +45,6 @@ class Config:
             tz_offset_min=int(e("TZ_OFFSET_MIN", "330")),
             free_dl_per_day=int(e("FREE_DL_PER_DAY", "3")),
             premium_stars_30d=int(e("PREMIUM_STARS_30D", "150")),
+            backup_chat_id=int(e("BACKUP_CHAT_ID", "0") or 0),
+            backup_every_min=int(e("BACKUP_EVERY_MIN", "5")),
         )

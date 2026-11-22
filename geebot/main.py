@@ -118,14 +118,14 @@ ALLOWED = ["message", "callback_query", "guest_message", "widget_query", "shared
            "pre_checkout_query", "poll_answer"]
 
 
-async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    cfg = Config.from_env()
-    ctx = Ctx(cfg, DB(cfg.db_path), Tg(cfg.bot_token, cfg.test_env), LLM(cfg.anthropic_model),
-              Jamendo(cfg.jamendo_client_id), Lrclib())
-    asyncio.create_task(sched.loop(ctx))
+def build_ctx(cfg: Config, db: DB | None = None) -> Ctx:
+    return Ctx(cfg, db or DB(cfg.db_path), Tg(cfg.bot_token, cfg.test_env), LLM(cfg.anthropic_model),
+               Jamendo(cfg.jamendo_client_id), Lrclib())
+
+
+async def poll(ctx: Ctx):
+    """Long-polling loop (outbound requests only)."""
     sem, offset = asyncio.Semaphore(20), 0
-    log.info("bot started (test_env=%s)", cfg.test_env)
 
     async def guarded(u):
         async with sem:
@@ -138,6 +138,18 @@ async def main():
             asyncio.create_task(guarded(u))
         if not ups:
             await asyncio.sleep(0.3)
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    cfg = Config.from_env()
+    from . import backup
+    backup.restore_sync(cfg)
+    ctx = build_ctx(cfg)
+    asyncio.create_task(sched.loop(ctx))
+    asyncio.create_task(backup.loop(ctx))
+    log.info("bot started (test_env=%s)", cfg.test_env)
+    await poll(ctx)
 
 
 if __name__ == "__main__":
