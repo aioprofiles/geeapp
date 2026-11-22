@@ -13,11 +13,11 @@ from starlette.background import BackgroundTask
 
 from geebot import lrc, textutil
 from geebot.config import Config
-from geebot.db import DB
+from geebot.store import open_db
 from geebot.webauth import validate_init_data
 
 cfg = Config.from_env()
-db = DB(cfg.db_path)
+db = open_db(cfg)
 app = FastAPI(title="geebot miniapp")
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 API = f"https://api.telegram.org/bot{cfg.bot_token}" + ("/test" if cfg.test_env else "")
