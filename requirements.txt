@@ -2,3 +2,4 @@ httpx>=0.27
 fastapi>=0.110
 uvicorn>=0.29
 anthropic>=0.40      # optional: feeling-search, explain/translate; bot runs without it
+psycopg[binary]>=3.2   # only needed when DATABASE_URL (Supabase/Neon Postgres) is set

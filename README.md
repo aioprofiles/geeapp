@@ -9,7 +9,7 @@ pip install -r requirements.txt
 cp .env.example .env && export $(grep -v '^#' .env | xargs)   # fill BOT_TOKEN, BOT_USERNAME, OWNER_IDS, ...
 python -m geebot.main                                           # bot (long polling + scheduler)
 uvicorn webapp.server:app --port 8080                           # Mini App backend, serve over HTTPS
-python -m unittest discover -s tests -t .                       # 56 tests
+python -m unittest discover -s tests -t .                       # 85 tests
 ```
 BotFather setup: enable **Guest Mode**; create a Mini App with short name = `APP_SHORT` pointing to `WEBAPP_URL/app`;
 turn **privacy mode off** (or make the bot admin) so plain-text game guesses are seen in groups (`/g title` works regardless).
@@ -31,6 +31,25 @@ bot long-polling + scheduler) and keeps its SQLite database in Telegram (`geebot
 Limits: last <=5 min of data can be lost on a hard crash; backup must stay < 20 MB compressed (restore uses getFile);
 a redeploy briefly runs two pollers (harmless `Conflict` log lines); cold start up to ~1 min; 512 MB RAM.
 Verify the Sinhala font path with `fc-list :lang=si` inside the container (needed only for reels).
+
+## Portal UI (Phase 1) and Stars donations
+* `rich.py` (HTML builders, escape-once), `theme.py` (button roles -> `primary|success|danger|link`), `screens.py` (every screen = HTML + rows),
+  `nav.py` (`n:<screen>` callbacks edit the same message), `donate.py`, `commands.py` (setMyCommands, private + group + Sinhala).
+* Rich messages are sent with `sendRichMessage {rich_message:{html}}`; edits use `editMessageText {rich_message:{html}}` with an automatic
+  plain-text fallback, because I could not confirm the edit call in the official method docs. Buttons are an inline keyboard below the bubble
+  (styled). Buttons *inside* the bubble (`<tg-button-row>`) are not used: I could not confirm the HTML syntax.
+* Stars: `/donate` (presets 1/5/10/50/100/500 + any custom amount), `sendInvoice` with `XTR`, strict pre-checkout validation,
+  idempotent recording by `telegram_payment_charge_id`, tier badges (1 / 50 / 500), supporters wall (respects Privacy Mode), owner `/refund <charge_id>`.
+  Telegram may enforce its own per-invoice maximum; a refused invoice is reported to the user ("try a smaller amount"). Verify on `TEST_ENV=1`.
+  Cash-out of Stars is done by you via Fragment; check its current conditions.
+
+## Postgres (Supabase / Neon) — optional
+Set `DATABASE_URL` to the **pooler** connection string (Supabase: Project -> Connect -> Transaction pooler; direct connections are IPv6-only
+unless you buy the IPv4 add-on - check). Keep Render and Supabase in the same region (Singapore). Schema is created on first start.
+Test before trusting it:  `python -c "import os; from geebot.pgdb import PgDB; print(PgDB(os.environ['DATABASE_URL']).q('select 1 as x'))"`.
+Supabase free: 500 MB, pauses after 1 week inactivity, **no automatic backups** -> in Postgres mode the bot sends a JSON export of the
+important tables to `BACKUP_CHAT_ID` every ~hour (`geebot-pg-export.json.gz`; restore is manual). The Postgres backend is unit-tested
+only through its SQL translator; I could not run it against a real server.
 
 ## Content policy (read before launching)
 * Catalogue = **Creative-Commons music (Jamendo)** + tracks uploaded by approved artists. No YouTube/Spotify ripping.
