@@ -54,9 +54,9 @@ class Base(unittest.TestCase):
 class PrivateFlows(Base):
     def test_search_card_fav(self):
         self.send("පළමු සින්දුව 2")
-        rows = self.tg.calls("send")[-1][0][2]
+        rows = self.tg.calls("rich")[-1][0][2]
         self.assertTrue(any("c:t2" in b["callback_data"] for r in rows for b in r))
-        self.press("c:t2"); self.assertTrue(self.tg.calls("send_rich"))
+        self.press("c:t2"); self.assertIn("Artist", self.tg.calls("rich")[-1][0][1])
         self.press("fv:t2"); self.assertTrue(self.db.is_fav(1, "t2"))
         self.press("fv:t2"); self.assertFalse(self.db.is_fav(1, "t2"))
 
@@ -107,7 +107,8 @@ class PrivateFlows(Base):
         self.send("/help@gb"); self.assertTrue(self.tg.log)
 
     def test_payment_grants_premium(self):
-        m = self.msg("", successful_payment={"invoice_payload": "prem30"}); del m["text"]
+        m = self.msg("", successful_payment={"invoice_payload": "prem30", "currency": "XTR", "total_amount": self.cfg.premium_stars_30d,
+                                              "telegram_payment_charge_id": "ch1"}); del m["text"]
         run(main.on_message(self.ctx, m)); self.assertTrue(self.db.is_premium(1))
 
 
